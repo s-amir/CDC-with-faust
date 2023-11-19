@@ -1,0 +1,109 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15.4
+    ports:
+      - 5433:5432
+    volumes:
+      - ./data/:/var/lib/postgresql/data
+      - ./init_script:/docker-entrypoint-initdb.d/
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_USER=postgres
+      - POSTGRES_DB=blu
+    command:
+      - "postgres"
+      - "-c"
+      - "wal_level=logical"
+      
+  zookeeper:
+    image: debezium/zookeeper
+    ports:
+      - "2181:2181"
+      - "2888:2888"
+      - "3888:3888"
+    volumes:
+      - ./zookeeper/conf:/zookeeper/conf
+      - ./zookeeper/data:/zookeeper/data
+      - ./zookeeper/logs:/zookeeper/logs
+
+     
+  kafka:
+    image: debezium/kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    depends_on:
+      - zookeeper
+    environment:
+      - ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=LISTENER_EXT://localhost:29092,LISTENER_INT://kafka:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=LISTENER_INT:PLAINTEXT,LISTENER_EXT:PLAINTEXT
+      - KAFKA_LISTENERS=LISTENER_INT://0.0.0.0:9092,LISTENER_EXT://0.0.0.0:29092
+      - KAFKA_INTER_BROKER_LISTENER_NAME=LISTENER_INT
+    volumes:
+      - ./data_kafka:/kafka/data
+      - ./kafka_zookeeper:/tmp/zookeeper
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--list", "----bootstrap-server", "localhost:9092"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+
+
+
+  connect:
+    image: debezium/connect
+    ports:
+      - "8083:8083"
+    depends_on:
+      - zookeeper
+      - kafka
+    environment:
+      - BOOTSTRAP_SERVERS=kafka:9092
+      - GROUP_ID=1
+      - CONFIG_STORAGE_TOPIC=my_connect_configs
+      - OFFSET_STORAGE_TOPIC=my_connect_offsets
+      - STATUS_STORAGE_TOPIC=my_connect_statuses
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    restart: "no"
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:9092"
+    depends_on:
+      - "kafka"
+      
+  ui:
+    image: debezium/debezium-ui
+    container_name: db-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CONNECT_URIS: http://connect:8083
+    depends_on:
+      - connect
+
+  mongodb_container:
+    image: mongo:latest
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root
+    ports:
+      - 27017:27017
+    volumes:
+      - ./mongodb_data_container:/data/db
+      
+  faust-app:
+    build:
+      context: ./dockerfile  
+      dockerfile: Dockerfile  
+    depends_on:
+     - kafka
+     - zookeeper
+     - connect
+

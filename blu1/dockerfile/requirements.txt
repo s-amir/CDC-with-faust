@@ -1,8 +1,0 @@
-async-timeout==4.0.3
-asyncpg==0.29.0
-distro==1.7.0
-faust==1.10.4
-future==0.18.2
-kafka-python==1.4.7
-pymongo==4.6.0
-requests
